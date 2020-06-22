@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from traffic_dataset import LoadData
 from ChebConv import ChebConv
-
+from GATConv import GraphAttentionLayer
 
 
 class chebNet(nn.Module):
@@ -42,6 +42,30 @@ class chebNet(nn.Module):
         return _.unsqueeze(2)
 
         
+
+class GAT(nn.Module):
+    def __init__(self, nfeat, nhid, nclass, dropout, alpha, nheads):
+        """Dense version of GAT."""
+        super(GAT, self).__init__()
+        self.dropout = dropout
+
+        self.attentions = [GraphAttentionLayer(nfeat, nhid, dropout=dropout, alpha=alpha, concat=True) for _ in range(nheads)]
+        for i, attention in enumerate(self.attentions):
+            self.add_module('attention_{}'.format(i), attention)
+
+        self.out_att = GraphAttentionLayer(nhid * nheads, nclass, dropout=dropout, alpha=alpha, concat=False)
+
+    def forward(self, data, device):
+        adj  = data["graph"][0].to(device)
+        flow_x = data["flow_x"].to(device)
+        B,N,H,D = flow_x.size()
+        x = flow_x.view(B,N,H*D)
+
+        x = F.dropout(x, self.dropout, training=self.training)
+        x = torch.cat([att(x, adj) for att in self.attentions], dim=2)
+        x = F.dropout(x, self.dropout, training=self.training)
+        x = F.elu(self.out_att(x, adj))
+        return x.unsqueeze(2)
 
 
 
@@ -74,8 +98,9 @@ def main():
 
 
 
-
-    my_net = chebNet(6,6,1)
+    
+    my_net = GAT(6,6,1,0.6,0.2,8)
+    
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

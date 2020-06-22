@@ -29,6 +29,7 @@ class GraphAttentionLayer(nn.Module):
         input : [B,N,H*D]
         adj    : [N , N]
 
+        return : [B,N,C]
         """
         B,N,_ = input.size()
 
@@ -48,9 +49,13 @@ class GraphAttentionLayer(nn.Module):
         if self.concat:
             return F.elu(h_prime)
         else:
-            return h_prime
+            return h_prime 
 
     def __repr__(self):
         return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
+
+
+
+
 
 
