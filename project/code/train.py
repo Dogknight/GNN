@@ -14,8 +14,8 @@ from torch.utils.data import DataLoader
 from traffic_dataset import LoadData
 from ChebConv import ChebConv
 from GATConv import GraphAttentionLayer
-
-
+from utils import MAE_per_batch,MAPE_per_batch,RMSE_per_batch
+import numpy as np
 class chebNet(nn.Module):
     def __init__(self,in_c,hid_c,out_c):
         super(chebNet,self).__init__()
@@ -140,15 +140,73 @@ def main():
     my_net.eval()
     with torch.no_grad():
 
-        total_loss = 0.0
+        MAE_total_loss  = 0.0
+        MAPE_total_loss  = 0.0
+        RMSE_total_loss  = 0.0
+
         for data in test_loader:
 
             predict_value = my_net(data, device).to(torch.device("cpu"))  # [B, N, 1, D]
 
-            loss = criterion(predict_value, data["flow_y"])
-            total_loss += loss.item()
+            mae_loss = MAE_per_batch(predict_value, data["flow_y"])
+            mape_loss = MAPE_per_batch(predict_value, data["flow_y"])
+            rmse_loss = RMSE_per_batch(predict_value, data["flow_y"])
 
-        print("Test Loss: {:02.4f}".format(1000 * total_loss / len(test_data)))
+
+            MAE_total_loss += mae_loss
+            MAPE_total_loss += mape_loss
+            RMSE_total_loss += rmse_loss
+
+        print("Test MAE Loss: {:02.4f}".format(1000 * MAE_total_loss / len(test_data)))
+        print("Test MAPE Loss: {:02.4f}".format(1000 * MAPE_total_loss / len(test_data)))
+        print("Test RMSE Loss: {:02.4f}".format(1000 * RMSE_total_loss / len(test_data)))
+    results_v(my_net)
+
+def results_v(my_net):
+    test_data = LoadData(data_path=["PeMS_04/PeMS04.csv", "PeMS_04/PeMS04.npz"], num_nodes=307, divide_days=[45, 14],
+                         time_interval=5, history_length=6,
+                         train_mode="test")
+
+    test_loader = DataLoader(test_data, batch_size=1, shuffle=False, num_workers=32)
+    
+    max_data, min_data = test_data.flow_norm   # [N, T, D] , norm_dim=1, [N, 1, D]
+    max_data = LoadData.to_tensor(max_data).unsqueeze(dim=0)
+    min_data = LoadData.to_tensor(min_data).unsqueeze(dim=0)  # [1,N, 1, D]
+
+
+
+    
+    my_net.eval()
+    full_pred=[]
+    full_truth=[]
+
+
+
+
+    with torch.no_grad():
+
+
+        for data in test_loader:
+
+            predict_value = my_net(data, "cuda").to("cpu")  # [1, N, 1, D]
+            truth_data = data["flow_y"]    # [1, N, 1, D]
+            _,N,_,_ = truth_data.size()
+
+            recover_pred_value = LoadData.recover_data(max_data,min_data,predict_value).reshape([N,1])
+            recover_truth_value = LoadData.recover_data(max_data,min_data,truth_data).reshape([N,1])
+
+
+            full_pred.append(recover_pred_value)
+            full_truth.append(recover_truth_value)
+        
+        full_pred= torch.cat(full_pred,dim=1)
+        full_truth= torch.cat(full_truth,dim=1)
+
+        np.save("full_pred.npy",full_pred)
+        np.save("full_truth.npy",full_truth)
+
+
+
 
 
 if __name__ == '__main__':
